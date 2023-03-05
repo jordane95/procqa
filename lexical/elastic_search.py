@@ -190,13 +190,18 @@ class ElasticSearch(object):
 
         result = []
         for resp in res["responses"]:
-            responses = resp["hits"]["hits"][skip:]
-            
-            hits = []
-            for hit in responses:
-                hits.append((hit["_id"], hit['_score']))
+            try:
+                responses = resp["hits"]["hits"][skip:]
+                
+                hits = []
+                for hit in responses:
+                    hits.append((hit["_id"], hit['_score']))
 
-            result.append(self.hit_template(es_res=resp, hits=hits))
+                result.append(self.hit_template(es_res=resp, hits=hits))
+            except:
+                result.append({
+                    "hits": []
+                })
         return result
     
     
@@ -223,7 +228,8 @@ class ElasticSearch(object):
                         self.title_key: value[self.title_key],
                         }
                 }
-                
+            
+            # print(doc)
             yield doc
         
     def hit_template(self, es_res: Dict[str, object], hits: List[Tuple[str, float]]) -> Dict[str, object]:

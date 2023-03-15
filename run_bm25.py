@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description="Script to mine BM25 hard negatives.")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--data_path", type=str, default="../qa.en.c.json", help="Name of the huggingface dataset")
+    parser.add_argument("--data_path", type=str, default="../data/qa.en.c.json", help="Name of the huggingface dataset")
     parser.add_argument("--top_k", type=int, default=1000, help="Top k BM25 results as negatives.")
     parser.add_argument("--save_path", type=str, default="data/qa.en.c.bm25.json")
 
@@ -46,7 +46,7 @@ def main():
     number_of_shards = 1
 
     # load dataset to search for bm25 negatives
-    dataset = load_dataset("json", data_files=args.data_path, split='train[:10%]')
+    dataset = load_dataset("json", data_files=args.data_path, split='train')
 
     queries: Dict[str, str] = {}
     corpus: Dict[str, Dict[str, str]] = {} # answer id -> answer str

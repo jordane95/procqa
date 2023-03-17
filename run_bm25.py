@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_path", type=str, default="../data/qa.en.c.json", help="Name of the huggingface dataset")
     parser.add_argument("--top_k", type=int, default=1000, help="Top k BM25 results as negatives.")
-    parser.add_argument("--save_path", type=str, default="data/qa.en.c.bm25.json")
+    parser.add_argument("--save_path", type=str, default="data/qa.en.c.bm25.list.json")
 
     args = parser.parse_args()
 
@@ -71,7 +71,8 @@ def main():
                 hits = results[str(item["question_id"])]
             except:
                 hits = {"-1": .0}
-            item["bm25_question2answer"] = hits
+            item["bm25_answer_ids"] = list(hits.keys())
+            item["bm25_answer_scores"] = list(hits.values())
             f.write(json.dumps(item) + '\n')
 
 

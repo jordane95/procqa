@@ -261,6 +261,31 @@ question_answering_column_name_mapping = {
 }
 
 
+import argparse
+from typing import Dict
+
+from datasets import DatasetDict, load_dataset
+
+
+
+def load_dataset_from_path(path: str):
+    train_set = load_dataset("json", data_files=path, split='train[:80%]')
+    dev_set = load_dataset("json", data_files=path, split='train[80%:90%]')
+    test_set = load_dataset("json", data_files=path, split='train[90%:]')
+
+    dataset = DatasetDict({
+        "train": train_set,
+        "validation": dev_set,
+        "test": test_set,
+    })
+
+    corpus: Dict[int, str] = {} # answer id -> answer str
+    for k in dataset:
+        for item in dataset[k]:
+            corpus[item["answer_id"]] = item["answer"]
+
+    return dataset
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -365,9 +390,7 @@ def main():
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
 
-    from ..utils import load_dataset_from_path
-
-    raw_dataset = load_dataset_from_path(data_args.train_file)
+    raw_datasets = load_dataset_from_path(data_args.train_file)
 
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
@@ -470,7 +493,7 @@ def main():
             return " ".join(["question:", _question.lstrip(), "context:", _context.lstrip()])
 
         inputs = [generate_input(question, context) for question, context in zip(questions, contexts)]
-        targets = [answer["text"][0] if len(answer["text"]) > 0 else "" for answer in answers]
+        targets = answers
         return inputs, targets
 
     def preprocess_function(examples):

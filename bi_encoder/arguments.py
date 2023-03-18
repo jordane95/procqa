@@ -39,6 +39,9 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
+    data_path: str = field(
+        default=None, metadata={"help": "Path to data"}
+    )
     sample_neg_from_topk: int = field(
         default=200, metadata={"help": "sample negatives from top-k"}
     )

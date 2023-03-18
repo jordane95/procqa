@@ -116,10 +116,10 @@ class RetrievalDataLoader:
     def _get_transformed_test_set(self):
         self.test_dataset = self.hf_dataset["test"]
         self.test_qrels: Dict[str, Dict[str, int]] = {}
-        self.test_queries: Dict[str, str] = {}
+        self.test_queries: Dict[str, Dict[str, str]] = {}
         for item in self.test_dataset:
             self.test_qrels[str(item["question_id"])] = {str(item["answer_id"]): 1}
-            self.test_queries[str(item["question_id"])] = item["question"]
+            self.test_queries[str(item["question_id"])] = item["title"] + self.tokenizer.sep_token + item["question"]
         
         self.corpus_dataset = PredictionDataset(self.args, self.corpus, self.tokenizer)
         self.test_queries_dataset = PredictionDataset(self.args, self.test_queries, self.tokenizer)
@@ -176,7 +176,7 @@ class PredictionDataset(Dataset):
     def __init__(
         self,
         args: DataArguments,
-        texts: Dict[str, str],
+        texts: Dict,
         tokenizer: PreTrainedTokenizer,
         max_len: int = 128
     ):

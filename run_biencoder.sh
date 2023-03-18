@@ -8,10 +8,12 @@ python run_biencoder.py \
     --output_dir $MODEL_DIR \
     --data_file data/qa.c.clean.json \
     --do_train \
+    --train_group_size 1 \
     --do_predict \
     --prediction_save_path $EMBEDDINGS_DIR \
     --encode_corpus \
-    --encode_query
+    --encode_query \
+    --overwrite_output_dir
 
 
 python test.py \

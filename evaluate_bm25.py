@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description="Script to evaluate the BM25 performance.")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--data_path", type=str, default="data/qa.en.c.bm25.json", help="Path to the dataset with bm25 scores.")
+    parser.add_argument("--data_path", type=str, default="data/qa.en.c.bm25.list.json", help="Path to the dataset with bm25 scores.")
     parser.add_argument("--top_k", type=int, default=1000, help="Top k BM25 results as negatives.")
     args = parser.parse_args()
 
@@ -39,9 +39,10 @@ def main():
 
     for item in test_set:
         gold_answer_id = str(item["answer_id"])
-        hits = item["bm25_question2answer"]
         qrels[str(item["question_id"])] = {gold_answer_id: 1}
-        results[str(item["question_id"])] = hits
+        bm25_answer_ids = [str(answer_id) for answer_id in item["bm25_answer_ids"]]
+        bm25_scores = item["bm25_answer_scores"]
+        results[str(item["question_id"])] = dict(zip(bm25_answer_ids, bm25_scores))
     
     k_values = [1, 10, 50, 100]
     m = mrr(qrels, results, k_values)

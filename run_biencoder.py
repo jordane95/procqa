@@ -7,7 +7,7 @@ from bi_encoder import BiEncoderModel
 from bi_encoder import BiTrainer
 from bi_encoder.arguments import ModelArguments, DataArguments, \
     RetrieverTrainingArguments as TrainingArguments
-from bi_encoder.data import TrainDatasetForBiE, PredictionDataset, BiCollator, PredictionCollator
+from bi_encoder.data import RetrievalDataLoader, PredictionDataset, BiCollator, PredictionCollator
 from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
@@ -84,11 +84,9 @@ def main():
         )
 
     # Get datasets
-    if training_args.do_train:
-        train_dataset = TrainDatasetForBiE(args=data_args, tokenizer=tokenizer)
-    else:
-        train_dataset = None
-
+    retrieval_dataloader = RetrievalDataLoader(data_args, tokenizer)
+    train_dataset = retrieval_dataloader.get_train_dataset()
+    
     trainer = BiTrainer(
         model=model,
         args=training_args,
@@ -99,6 +97,7 @@ def main():
             passage_max_len=data_args.passage_max_len
         ),
     )
+    retrieval_dataloader.trainer = trainer
 
     Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)
 

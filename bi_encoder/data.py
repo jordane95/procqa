@@ -4,56 +4,148 @@ import os.path
 import random
 from dataclasses import dataclass
 from typing import List, Tuple, Any, Optional
+import random
 
 import datasets
 import torch
 from torch.utils.data import Dataset
 from transformers import DataCollatorWithPadding
 from transformers import PreTrainedTokenizer, BatchEncoding
+from transformers.file_utils import PaddingStrategy
 
 from .arguments import DataArguments
-from ..utils import load_dataset_from_path
 
 
-def read_mapping_id(id_file):
-    id_dict = {}
-    for line in open(id_file, encoding='utf-8'):
-        id, offset = line.strip().split('\t')
-        id_dict[id] = int(offset)
-    return id_dict
+import argparse
+from typing import Dict
+
+from datasets import DatasetDict, load_dataset
+
+from typing import List, Dict
+from .logger_config import logger
+
+def group_doc_ids(examples: Dict[str, List],
+                  negative_size: int,
+                  offset: int,
+                  use_bm25: bool = False) -> List[int]:
+    pos_doc_ids: List[int] = examples['answer_id']
+    
+    neg_doc_ids: List[List[int]] = []
+
+    
+
+    if use_bm25:
+        neg_doc_ids: List[List[str]] = examples['bm25_answer_ids']
+        for ex_neg in neg_doc_ids:
+            cur_neg_doc_ids = random.sample(ex_neg, negative_size)
+            cur_neg_doc_ids = [int(doc_id) for doc_id in cur_neg_doc_ids]
+            neg_doc_ids.append(cur_neg_doc_ids)
+
+    assert len(pos_doc_ids) == len(neg_doc_ids), '{} != {}'.format(len(pos_doc_ids), len(neg_doc_ids))
+    assert all(len(doc_ids) == negative_size for doc_ids in neg_doc_ids)
+
+    input_doc_ids: List[int] = []
+    for pos_doc_id, neg_ids in zip(pos_doc_ids, neg_doc_ids):
+        input_doc_ids.append(pos_doc_id)
+        input_doc_ids += neg_ids
+
+    return input_doc_ids
 
 
-def read_train_file(train_file):
-    train_data = []
-    for line in open(train_file, encoding='utf-8'):
-        line = line.strip('\n').split('\t')
-        qid = line[0]
-        pos = line[1].split(',')
-        train_data.append((qid, pos))
-    return train_data
+def load_dataset_from_path(path: str):
+    train_set = load_dataset("json", data_files=path, split='train[:80%]')
+    dev_set = load_dataset("json", data_files=path, split='train[80%:90%]')
+    test_set = load_dataset("json", data_files=path, split='train[90%:]')
+
+    dataset = DatasetDict({
+        "train": train_set,
+        "validation": dev_set,
+        "test": test_set,
+    })
+
+    corpus: Dict[str, str] = {} # answer id -> answer str
+    for k in dataset:
+        for item in dataset[k]:
+            corpus[str(item["answer_id"])] = item["answer"]
+
+    return dataset, corpus
 
 
-def read_neg_file(neg_file):
-    neg_data = collections.defaultdict(list)
-    for line in open(neg_file, encoding='utf-8'):
-        line = line.strip('\n').split('\t')
-        qid = line[0]
-        neg = line[1].split(',')
-        neg_data[qid].extend(neg)
-    return neg_data
+class RetrievalDataLoader:
+
+    def __init__(self, args: DataArguments, tokenizer: PreTrainedTokenizer):
+        self.args = args
+        self.negative_size = args.train_group_size - 1
+        assert self.negative_size > 0
+        self.tokenizer = tokenizer
+
+        self.hf_dataset, self.corpus = load_dataset_from_path(args.data_file)
+        self.train_dataset, self.eval_dataset = self._get_transformed_datasets()
+
+        # use its state to decide which positives/negatives to sample
+        self.trainer: Optional[Trainer] = None
+    
+    def get_train_dataset(self):
+        return self.train_dataset
+    
+    def get_eval_dataset(self):
+        return self.eval_dataset
+
+    def _get_transformed_datasets(self) -> Tuple:
+        train_dataset, eval_dataset = None, None
+
+        if "train" not in self.hf_dataset:
+            raise ValueError("--do_train requires a train dataset")
+        hf_train_dataset = self.hf_dataset["train"]
+        # Log a few random samples from the training set:
+        for index in random.sample(range(len(hf_train_dataset)), 3):
+            logger.info(f"Sample {index} of the training set: {hf_train_dataset[index]}.")
+        self.train_dataset = TrainDatasetForBiE(self.args, hf_train_dataset, self.tokenizer)
+
+        if "validation" not in self.hf_dataset:
+            raise ValueError("--do_eval requires a validation dataset")
+        hf_eval_dataset = self.hf_dataset["validation"]
+        self.eval_dataset = TrainDatasetForBiE(self.args, hf_eval_dataset, self.tokenizer)
+
+        return self.train_dataset, self.eval_dataset
 
 
-def read_teacher_score(score_files):
-    teacher_score = collections.defaultdict(dict)
-    for file in score_files.split(','):
-        if not os.path.exists(file):
-            logging.info(f"There is no score file:{file}, skip reading the score")
-            return None
-        for line in open(file):
-            qid, did, score = line.strip().split()
-            score = float(score.strip('[]'))
-            teacher_score[qid][did] = score
-    return teacher_score
+class TrainDatasetForBiE(Dataset):
+    def __init__(
+        self,
+        args: DataArguments,
+        dataset: datasets.Dataset,
+        tokenizer: PreTrainedTokenizer
+    ):
+        self.dataset = dataset
+
+        self.tokenizer = tokenizer
+        self.args = args
+        self.total_len = len(self.dataset)
+
+    def __len__(self):
+        return self.total_len
+
+    def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
+        example = self.dataset[item]
+        input_docs = example['answer']
+
+        query_batch_dict = self.tokenizer(
+            text=example['title'],
+            text_pair=example['question'],
+            max_length=self.args.query_max_len,
+            padding=False,
+            truncation='only_second',
+        )
+        print(input_docs)
+        doc_batch_dict = self.tokenizer(
+            text=input_docs,
+            max_length=self.args.passage_max_len,
+            padding=False,
+            truncation='only_first',
+        )
+
+        return query_batch_dict, doc_batch_dict
 
 
 def generate_random_neg(qids, pids, k=30):
@@ -62,71 +154,6 @@ def generate_random_neg(qids, pids, k=30):
         negs = random.sample(pids, k)
         qid_negatives[q] = negs
     return qid_negatives
-
-
-class TrainDatasetForBiE(Dataset):
-    def __init__(
-            self,
-            args: DataArguments,
-            tokenizer: PreTrainedTokenizer
-    ):
-        
-        self.dataset = load_dataset_from_path(args.data_file)
-
-        
-
-    def __len__(self):
-        return self.total_len
-
-    def create_query_example(self, id: Any):
-        item = self.tokenizer.encode_plus(
-            self.query_dataset[self.query_id[id]]['input_ids'],
-            truncation='only_first',
-            max_length=self.args.query_max_len,
-            padding=False,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-        )
-        return item
-
-    def create_passage_example(self, id: Any):
-        item = self.tokenizer.encode_plus(
-            self.corpus_dataset[self.corpus_id[id]]['input_ids'],
-            truncation='only_first',
-            max_length=self.args.passage_max_len,
-            padding=False,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-        )
-        return item
-
-    def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding], Optional[List[int]]]:
-        group = self.train_qrels[item]
-
-        qid = group[0]
-        query = self.create_query_example(qid)
-
-        teacher_scores = None
-        passages = []
-        pos_id = random.choice(group[1])
-        passages.append(self.create_passage_example(pos_id))
-        if self.teacher_score:
-            teacher_scores = []
-            teacher_scores.append(self.teacher_score[qid][pos_id])
-
-        query_negs = self.train_negative[qid][:self.args.sample_neg_from_topk]
-        if len(query_negs) < self.args.train_group_size - 1:
-            negs = random.sample(self.corpus_id.keys(), k=self.args.train_group_size - 1 - len(query_negs))
-            negs.extend(query_negs)
-        else:
-            negs = random.sample(query_negs, k=self.args.train_group_size - 1)
-
-        for id in negs:
-            passages.append(self.create_passage_example(id))
-            if self.teacher_score:
-                teacher_scores.append(self.teacher_score[qid][id])
-
-        return query, passages, teacher_scores
 
 
 class PredictionDataset(Dataset):

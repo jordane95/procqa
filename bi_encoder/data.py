@@ -76,7 +76,7 @@ class RetrievalDataLoader:
     def __init__(self, args: DataArguments, tokenizer: PreTrainedTokenizer):
         self.args = args
         self.negative_size = args.train_group_size - 1
-        assert self.negative_size > 0
+        assert self.negative_size >= 0
         self.tokenizer = tokenizer
 
         # for training

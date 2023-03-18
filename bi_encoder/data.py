@@ -137,7 +137,9 @@ class TrainDatasetForBiE(Dataset):
             padding=False,
             truncation='only_second',
         )
-        print(input_docs)
+        # print(example['question_id'])
+        # print(example['answer_id'])
+        # print(input_docs)
         doc_batch_dict = self.tokenizer(
             text=input_docs,
             max_length=self.args.passage_max_len,

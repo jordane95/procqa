@@ -79,8 +79,12 @@ class RetrievalDataLoader:
         assert self.negative_size > 0
         self.tokenizer = tokenizer
 
+        # for training
         self.hf_dataset, self.corpus = load_dataset_from_path(args.data_file)
         self.train_dataset, self.eval_dataset = self._get_transformed_datasets()
+
+        # for prediction & evaluation
+        self.test_queries_dataset, self.corpus_dataset = self._get_transformed_test_set()
 
         # use its state to decide which positives/negatives to sample
         self.trainer: Optional[Trainer] = None
@@ -108,6 +112,18 @@ class RetrievalDataLoader:
         self.eval_dataset = TrainDatasetForBiE(self.args, hf_eval_dataset, self.tokenizer)
 
         return self.train_dataset, self.eval_dataset
+    
+    def _get_transformed_test_set(self):
+        self.test_dataset = self.hf_dataset["test"]
+        self.test_qrels: Dict[str, Dict[str, int]] = {}
+        self.test_queries: Dict[str, str] = {}
+        for item in self.test_dataset:
+            self.test_qrels[str(item["question_id"])] = {str(item["answer_id"]): 1}
+            self.test_queries[str(item["question_id"])] = item["question"]
+        
+        self.corpus_dataset = PredictionDataset(self.args, self.corpus, self.tokenizer)
+        self.test_queries_dataset = PredictionDataset(self.args, self.test_queries, self.tokenizer)
+        return self.test_queries_dataset, self.corpus_dataset
 
 
 class TrainDatasetForBiE(Dataset):
@@ -135,16 +151,14 @@ class TrainDatasetForBiE(Dataset):
             text_pair=example['question'],
             max_length=self.args.query_max_len,
             padding=False,
-            truncation='only_second',
+            truncation='longest_first',
         )
-        # print(example['question_id'])
-        # print(example['answer_id'])
-        # print(input_docs)
+
         doc_batch_dict = self.tokenizer(
             text=input_docs,
             max_length=self.args.passage_max_len,
             padding=False,
-            truncation='only_first',
+            truncation='longest_first',
         )
 
         return query_batch_dict, doc_batch_dict
@@ -159,8 +173,16 @@ def generate_random_neg(qids, pids, k=30):
 
 
 class PredictionDataset(Dataset):
-    def __init__(self, data_path: str, tokenizer: PreTrainedTokenizer, max_len=128):
-        self.encode_data = datasets.Dataset.load_from_disk(data_path)
+    def __init__(
+        self,
+        args: DataArguments,
+        texts: Dict[str, str],
+        tokenizer: PreTrainedTokenizer,
+        max_len: int = 128
+    ):
+        self.args = args
+        self.text_ids = list(texts.keys()) # List[str]
+        self.encode_data = [texts[i] for i in self.text_ids]
         self.tokenizer = tokenizer
         self.max_len = max_len
 
@@ -169,7 +191,7 @@ class PredictionDataset(Dataset):
 
     def __getitem__(self, item) -> BatchEncoding:
         item = self.tokenizer.encode_plus(
-            self.encode_data[item]['input_ids'],
+            self.encode_data[item],
             truncation='only_first',
             max_length=self.max_len,
             padding=False,

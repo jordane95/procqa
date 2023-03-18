@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 
 import numpy as np
-from bi_encoder import BiEncoderModel
-from bi_encoder import BiTrainer
+from bi_encoder.modeling import BiEncoderModel
+from bi_encoder.trainer import BiTrainer
 from bi_encoder.arguments import ModelArguments, DataArguments, \
     RetrieverTrainingArguments as TrainingArguments
 from bi_encoder.data import RetrievalDataLoader, PredictionDataset, BiCollator, PredictionCollator
@@ -96,6 +96,7 @@ def main():
             query_max_len=data_args.query_max_len,
             passage_max_len=data_args.passage_max_len
         ),
+        tokenizer=tokenizer,
     )
     retrieval_dataloader.trainer = trainer
 
@@ -105,55 +106,54 @@ def main():
     if training_args.do_train:
         trainer.train()
         trainer.save_model()
-        # For convenience, we also re-save the tokenizer to the same directory,
-        # so that you can share your model easily on huggingface.co/models =)
-        if trainer.is_world_process_zero():
-            tokenizer.save_pretrained(training_args.output_dir)
+        # # For convenience, we also re-save the tokenizer to the same directory,
+        # # so that you can share your model easily on huggingface.co/models =)
+        # if trainer.is_world_process_zero():
+        #     tokenizer.save_pretrained(training_args.output_dir)
 
     if training_args.do_predict:
         logging.info("*** Prediction ***")
         # if os.path.exists(data_args.prediction_save_path):
         #     raise FileExistsError(f"Existing: {data_args.prediction_save_path}. Please save to other paths")
 
-        if data_args.corpus_file is not None:
+        if data_args.encode_corpus:
             logging.info("*** Corpus Prediction ***")
             passage_path = os.path.join(data_args.prediction_save_path, 'passage_reps')
             Path(passage_path).mkdir(parents=True, exist_ok=True)
 
             trainer.data_collator = PredictionCollator(tokenizer=tokenizer, is_query=False)
-            test_dataset = PredictionDataset(
-                data_path=data_args.corpus_file, tokenizer=tokenizer,
-                max_len=data_args.passage_max_len,
-            )
+            test_dataset = retrieval_dataloader.corpus_dataset
             pred_scores = trainer.predict(test_dataset=test_dataset).predictions
 
             if trainer.is_world_process_zero():
                 assert len(test_dataset) == len(pred_scores)
                 np.save(os.path.join(passage_path, 'passage.npy'), pred_scores)
                 with open(os.path.join(passage_path, 'offset2passageid.txt'), "w") as writer:
-                    for line in open(data_args.corpus_id_file):
-                        cid, offset = line.strip().split('\t')
+                    for offset, cid in enumerate(test_dataset.text_ids):
                         writer.write(f'{offset}\t{cid}\t\n')
 
-        if data_args.test_query_file is not None:
+        if data_args.encode_query:
             logging.info("*** Query Prediction ***")
             query_path = os.path.join(data_args.prediction_save_path, 'query_reps')
             Path(query_path).mkdir(parents=True, exist_ok=True)
 
             trainer.data_collator = PredictionCollator(tokenizer=tokenizer, is_query=True)
-            test_dataset = PredictionDataset(
-                data_path=data_args.test_query_file, tokenizer=tokenizer,
-                max_len=data_args.query_max_len,
-            )
+            test_dataset = retrieval_dataloader.test_queries_dataset
             pred_scores = trainer.predict(test_dataset=test_dataset).predictions
 
             if trainer.is_world_process_zero():
                 assert len(test_dataset) == len(pred_scores)
                 np.save(os.path.join(query_path, 'query.npy'), pred_scores)
                 with open(os.path.join(query_path, 'offset2queryid.txt'), "w") as writer:
-                    for line in open(data_args.test_query_id_file):
-                        cid, offset = line.strip().split('\t')
+                    for offset, cid in enumerate(test_dataset.text_ids):
                         writer.write(f'{offset}\t{cid}\t\n')
+                
+                # save qrels
+                test_qrels = retrieval_dataloader.test_qrels
+                with open(os.path.join(data_args.prediction_save_path, 'qrels.test.tsv'), "w") as writer:
+                    for qid in test_qrels:
+                        for did, score in test_qrels[qid].items():
+                            writer.write(f'{qid}\t{did}\t{score}\n')
 
 
 if __name__ == "__main__":

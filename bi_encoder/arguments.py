@@ -39,43 +39,12 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    data_path: str = field(
-        default=None, metadata={"help": "Path to data"}
-    )
     sample_neg_from_topk: int = field(
         default=200, metadata={"help": "sample negatives from top-k"}
-    )
-    teacher_score_files: str = field(
-        default=None, metadata={"help": "Path to score_file for distillation"}
     )
 
     data_file: str = field(
         default=None, metadata={"help": "Path to raw data file"}
-    )
-
-    corpus_file: str = field(
-        default=None, metadata={"help": "Path to corpus"}
-    )
-    corpus_id_file: Union[str] = field(
-        default=None, metadata={"help": "Path to corpus"}
-    )
-    train_query_file: Union[str] = field(
-        default=None, metadata={"help": "Path to query data"}
-    )
-    train_query_id_file: Union[str] = field(
-        default=None, metadata={"help": "Path to query data"}
-    )
-    train_qrels: Union[str] = field(
-        default=None, metadata={"help": "Path to train data"}
-    )
-    neg_file: Union[str] = field(
-        default=None, metadata={"help": "Path to train data"}
-    )
-    test_query_file: Union[str] = field(
-        default=None, metadata={"help": "Path to negative"}
-    )
-    test_query_id_file: Union[str] = field(
-        default=None, metadata={"help": "Path to query data"}
     )
 
     prediction_save_path: Union[str] = field(
@@ -100,21 +69,14 @@ class DataArguments:
         },
     )
 
-    def __post_init__(self):
-        if self.corpus_file and not self.corpus_id_file:
-            if not os.path.exists(os.path.join(self.corpus_file, 'mapping_id.txt')):
-                raise FileNotFoundError(f'There is no mapping_id.txt in {self.corpus_file}')
-            self.corpus_id_file = os.path.join(self.corpus_file, 'mapping_id.txt')
-
-        if self.train_query_file and not self.train_query_id_file:
-            if not os.path.exists(os.path.join(self.train_query_file, 'mapping_id.txt')):
-                raise FileNotFoundError(f'There is no mapping_id.txt in {self.train_query_file}')
-            self.train_query_id_file = os.path.join(self.train_query_file, 'mapping_id.txt')
-
-        if self.test_query_file and not self.test_query_id_file:
-            if not os.path.exists(os.path.join(self.test_query_file, 'mapping_id.txt')):
-                raise FileNotFoundError(f'There is no mapping_id.txt in {self.test_query_file}')
-            self.test_query_id_file = os.path.join(self.test_query_file, 'mapping_id.txt')
+    encode_corpus: bool = field(
+        default=False,
+        metadata={"help": "encode corpus and save to disk"}
+    )
+    encode_query: bool = field(
+        default=False,
+        metadata={"help": "encode query and save to disk"}
+    )
 
 
 @dataclass

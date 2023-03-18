@@ -5,11 +5,11 @@ from tqdm import tqdm
 from typing import Dict, List
 import json
 
-from lexical import BM25Search as BM25
+import BM25Search as BM25
 
 from datasets import load_dataset
 
-from custom_metrics import mrr, recall_cap
+from .custom_metrics import mrr, recall_cap
 
 
 logging.basicConfig(

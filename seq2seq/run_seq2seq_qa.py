@@ -24,10 +24,11 @@ import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+import nltk  # Here to have a nice missing dependency error message early on
 import datasets
 import evaluate
 from datasets import load_dataset
-from trainer_seq2seq_qa import QuestionAnsweringSeq2SeqTrainer
+import numpy as np
 
 import transformers
 from transformers import (
@@ -37,6 +38,7 @@ from transformers import (
     DataCollatorForSeq2Seq,
     HfArgumentParser,
     Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
     set_seed,
 )
 from transformers.trainer_utils import EvalLoopOutput, EvalPrediction, get_last_checkpoint
@@ -195,27 +197,6 @@ class DataTrainingArguments:
             )
         },
     )
-    version_2_with_negative: bool = field(
-        default=False, metadata={"help": "If true, some of the examples do not have an answer."}
-    )
-    null_score_diff_threshold: float = field(
-        default=0.0,
-        metadata={
-            "help": (
-                "The threshold used to select the null answer: if the best answer has a score that is less than "
-                "the score of the null answer minus this threshold, the null answer is selected for this example. "
-                "Only useful when `version_2_with_negative=True`."
-            )
-        },
-    )
-    doc_stride: int = field(
-        default=128,
-        metadata={"help": "When splitting up a long document into chunks, how much stride to take between chunks."},
-    )
-    n_best_size: int = field(
-        default=20,
-        metadata={"help": "The total number of n-best predictions to generate when looking for an answer."},
-    )
     num_beams: Optional[int] = field(
         default=None,
         metadata={
@@ -346,50 +327,6 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    # if data_args.dataset_name is not None:
-    #     # Downloading and loading a dataset from the hub.
-    #     raw_datasets = load_dataset(
-    #         data_args.dataset_name,
-    #         data_args.dataset_config_name,
-    #         cache_dir=model_args.cache_dir,
-    #         use_auth_token=True if model_args.use_auth_token else None,
-    #     )
-    # else:
-    #     data_files = {}
-    #     if data_args.train_file is not None:
-    #         data_files["train"] = data_args.train_file
-    #         extension = data_args.train_file.split(".")[-1]
-    #     if data_args.validation_file is not None:
-    #         data_files["validation"] = data_args.validation_file
-    #         extension = data_args.validation_file.split(".")[-1]
-    #     if data_args.test_file is not None:
-    #         data_files["test"] = data_args.test_file
-    #         extension = data_args.test_file.split(".")[-1]
-    #     raw_datasets = load_dataset(
-    #         extension,
-    #         data_files=data_files,
-    #         field="data",
-    #         cache_dir=model_args.cache_dir,
-    #         use_auth_token=True if model_args.use_auth_token else None,
-    #     )
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
-
-    # Load pretrained model and tokenizer
-    #
-    # Distributed training:
-    # The .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
-
     raw_datasets = load_dataset_from_path(data_args.train_file)
 
     config = AutoConfig.from_pretrained(
@@ -479,7 +416,7 @@ def main():
         )
     max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)
 
-    def preprocess_squad_batch(
+    def preprocess_procqa_batch(
         examples,
         question_column: str,
         context_column: str,
@@ -497,7 +434,7 @@ def main():
         return inputs, targets
 
     def preprocess_function(examples):
-        inputs, targets = preprocess_squad_batch(examples, question_column, context_column, answer_column)
+        inputs, targets = preprocess_procqa_batch(examples, question_column, context_column, answer_column)
 
         model_inputs = tokenizer(inputs, max_length=max_seq_length, padding=padding, truncation=True)
         # Tokenize targets with text_target=...
@@ -511,47 +448,6 @@ def main():
             ]
 
         model_inputs["labels"] = labels["input_ids"]
-        return model_inputs
-
-    # Validation preprocessing
-    def preprocess_validation_function(examples):
-        inputs, targets = preprocess_squad_batch(examples, question_column, context_column, answer_column)
-
-        model_inputs = tokenizer(
-            inputs,
-            max_length=max_seq_length,
-            padding=padding,
-            truncation=True,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-        )
-        # Tokenize targets with the `text_target` keyword argument
-        labels = tokenizer(text_target=targets, max_length=max_answer_length, padding=padding, truncation=True)
-
-        # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-        # padding in the loss.
-        if padding == "max_length" and data_args.ignore_pad_token_for_loss:
-            labels["input_ids"] = [
-                [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-            ]
-
-        # Since one example might give us several features if it has a long context, we need a map from a feature to
-        # its corresponding example. This key gives us just that.
-        sample_mapping = model_inputs.pop("overflow_to_sample_mapping")
-
-        # For evaluation, we will need to convert our predictions to substrings of the context, so we keep the
-        # corresponding example_id and we will store the offset mappings.
-        model_inputs["example_id"] = []
-        # Augment the overflowing tokens to the labels
-        labels_out = []
-
-        for i in range(len(model_inputs["input_ids"])):
-            # One example can give several spans, this is the index of the example containing this span of text.
-            sample_index = sample_mapping[i]
-            model_inputs["example_id"].append(examples["id"][sample_index])
-            labels_out.append(labels["input_ids"][sample_index])
-
-        model_inputs["labels"] = labels_out
         return model_inputs
 
     if training_args.do_train:
@@ -588,7 +484,7 @@ def main():
         # Validation Feature Creation
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_examples.map(
-                preprocess_validation_function,
+                preprocess_function,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
@@ -610,7 +506,7 @@ def main():
         # Predict Feature Creation
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = predict_examples.map(
-                preprocess_validation_function,
+                preprocess_function,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
                 remove_columns=column_names,
@@ -631,53 +527,47 @@ def main():
         pad_to_multiple_of=8 if training_args.fp16 else None,
     )
 
-    metric = evaluate.load("squad_v2" if data_args.version_2_with_negative else "squad")
+    # Metric
+    metric = evaluate.load("rouge")
 
-    def compute_metrics(p: EvalPrediction):
-        return metric.compute(predictions=p.predictions, references=p.label_ids)
+    def postprocess_text(preds, labels):
+        preds = [pred.strip() for pred in preds]
+        labels = [label.strip() for label in labels]
 
-    # Post-processing:
-    def post_processing_function(
-        examples: datasets.Dataset, features: datasets.Dataset, outputs: EvalLoopOutput, stage="eval"
-    ):
-        # Decode the predicted tokens.
-        preds = outputs.predictions
+        # rougeLSum expects newline after each sentence
+        preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+        labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+
+        return preds, labels
+
+    def compute_metrics(eval_preds):
+        preds, labels = eval_preds
         if isinstance(preds, tuple):
             preds = preds[0]
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        if data_args.ignore_pad_token_for_loss:
+            # Replace -100 in the labels as we can't decode them.
+            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        # Build a map example to its corresponding features.
-        example_id_to_index = {k: i for i, k in enumerate(examples["id"])}
-        feature_per_example = {example_id_to_index[feature["example_id"]]: i for i, feature in enumerate(features)}
-        predictions = {}
-        # Let's loop over all the examples!
-        for example_index, example in enumerate(examples):
-            # This is the index of the feature associated to the current example.
-            feature_index = feature_per_example[example_index]
-            predictions[example["id"]] = decoded_preds[feature_index]
+        # Some simple post-processing
+        decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
 
-        # Format the result to the format the metric expects.
-        if data_args.version_2_with_negative:
-            formatted_predictions = [
-                {"id": k, "prediction_text": v, "no_answer_probability": 0.0} for k, v in predictions.items()
-            ]
-        else:
-            formatted_predictions = [{"id": k, "prediction_text": v} for k, v in predictions.items()]
-
-        references = [{"id": ex["id"], "answers": ex[answer_column]} for ex in examples]
-        return EvalPrediction(predictions=formatted_predictions, label_ids=references)
+        result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
+        result = {k: round(v * 100, 4) for k, v in result.items()}
+        prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
+        result["gen_len"] = np.mean(prediction_lens)
+        return result
 
     # Initialize our Trainer
-    trainer = QuestionAnsweringSeq2SeqTrainer(
+    trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
-        eval_examples=eval_examples if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
-        post_process_function=post_processing_function,
     )
 
     # Training
@@ -721,7 +611,7 @@ def main():
     # Prediction
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        results = trainer.predict(predict_dataset, predict_examples)
+        results = trainer.predict(predict_dataset, metric_key_prefix="predict")
         metrics = results.metrics
 
         max_predict_samples = (
@@ -731,6 +621,16 @@ def main():
 
         trainer.log_metrics("predict", metrics)
         trainer.save_metrics("predict", metrics)
+
+        if trainer.is_world_process_zero():
+            if training_args.predict_with_generate:
+                predictions = tokenizer.batch_decode(
+                    results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
+                )
+                predictions = [pred.strip() for pred in predictions]
+                output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
+                with open(output_prediction_file, "w") as writer:
+                    writer.write("\n".join(predictions))
 
     if training_args.push_to_hub:
         kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "question-answering"}

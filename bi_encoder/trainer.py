@@ -84,3 +84,26 @@ class BiTrainer(Trainer):
 
         labels = None
         return (loss, logits, labels)
+
+
+    def evaluation_loop(self, *args, **kwargs) -> EvalLoopOutput:
+        """Additional features 
+        customized compute_metrics which requires no labels 
+        """ 
+        eval_outs = super().evaluation_loop(*args, **kwargs)
+        preds, label_ids, metrics = eval_outs.predictions, eval_outs.label_ids, eval_outs.metrics
+        if self.compute_metrics is not None:
+            metrics_no_label = self.compute_metrics(EvalPrediction(predictions=preds, label_ids=label_ids))
+        else:
+            metrics_no_label = {}
+
+        
+        for key in list(metrics_no_label.keys()):
+            if not key.startswith("eval_"):
+                metrics_no_label[f"eval_{key}"] = metrics_no_label.pop(key)
+        return EvalLoopOutput(
+            predictions=eval_outs.predictions,
+            label_ids=eval_outs.label_ids,
+            num_samples=eval_outs.num_samples,
+            metrics={**metrics, **metrics_no_label},
+        )

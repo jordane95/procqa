@@ -32,8 +32,6 @@ def group_doc_ids(examples: Dict[str, List],
     
     neg_doc_ids: List[List[int]] = []
 
-    
-
     if use_bm25:
         neg_doc_ids: List[List[str]] = examples['bm25_answer_ids']
         for ex_neg in neg_doc_ids:
@@ -116,7 +114,7 @@ class RetrievalDataLoader:
     def _get_transformed_test_set(self):
         self.test_dataset = self.hf_dataset["test"]
         self.test_qrels: Dict[str, Dict[str, int]] = {}
-        self.test_queries: Dict[str, Dict[str, str]] = {}
+        self.test_queries: Dict[str, str] = {}
         for item in self.test_dataset:
             self.test_qrels[str(item["question_id"])] = {str(item["answer_id"]): 1}
             self.test_queries[str(item["question_id"])] = item["title"] + self.tokenizer.sep_token + item["question"]
@@ -161,6 +159,10 @@ class TrainDatasetForBiE(Dataset):
             truncation='longest_first',
         )
 
+        # print(self.tokenizer.decode(query_batch_dict['input_ids']))
+        # print(self.tokenizer.decode(doc_batch_dict['input_ids']))
+        # import pdb; pdb.set_trace()
+
         return query_batch_dict, doc_batch_dict
 
 
@@ -178,7 +180,7 @@ class PredictionDataset(Dataset):
         args: DataArguments,
         texts: Dict,
         tokenizer: PreTrainedTokenizer,
-        max_len: int = 128
+        max_len: int = 256
     ):
         self.args = args
         self.text_ids = list(texts.keys()) # List[str]

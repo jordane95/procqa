@@ -54,7 +54,7 @@ class DataArguments:
     train_group_size: int = field(default=8)
 
     query_max_len: int = field(
-        default=32,
+        default=256,
         metadata={
             "help": "The maximum total input sequence length after tokenization for passage. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."
@@ -62,7 +62,7 @@ class DataArguments:
     )
 
     passage_max_len: int = field(
-        default=128,
+        default=256,
         metadata={
             "help": "The maximum total input sequence length after tokenization for passage. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."

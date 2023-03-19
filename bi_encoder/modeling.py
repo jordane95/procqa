@@ -182,6 +182,8 @@ class BiEncoderModel(nn.Module):
             target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
             target = target * (p_reps.size(0) // q_reps.size(0))
 
+            # import pdb; pdb.set_trace()
+
             loss = self.compute_loss(scores, target)
             if teacher_score is not None:
                 loss = kl_loss + self.contrastive_loss_weight * loss

@@ -23,3 +23,10 @@ def load_dataset_from_path(path: str):
 
     return dataset
 
+if __name__ == "__main__":
+    dataset = load_dataset_from_path("../data/qa.en.c.json")
+
+    print("train size", len(dataset['train']))
+    print("dev size:", len(dataset['validation']))
+    print("test size:", len(dataset['test']))
+

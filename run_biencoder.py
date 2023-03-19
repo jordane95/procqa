@@ -1,8 +1,11 @@
 import logging
 import os
 from pathlib import Path
+from typing import Dict
+from functools import partial
 
 import numpy as np
+import torch
 from bi_encoder.modeling import BiEncoderModel
 from bi_encoder.trainer import BiTrainer
 from bi_encoder.arguments import ModelArguments, DataArguments, \
@@ -12,10 +15,30 @@ from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
     set_seed,
+    EvalPrediction,
 )
+import transformers
+
+# transformers.logging.set_verbosity_error()
+import logging
+logging.disable(logging.WARNING)
+
+from metrics import accuracy, batch_mrr
 
 logger = logging.getLogger(__name__)
 
+def _compute_metrics(eval_pred: EvalPrediction, eval_group_size: int = 8) -> Dict[str, float]:
+    # field consistent with BiencoderOutput 
+    preds = eval_pred.predictions
+    scores = torch.tensor(preds[-1]).float() # (num_samples, num_samples * eval_group_size) 
+    labels = torch.arange(0, scores.shape[0], dtype=torch.long) * eval_group_size
+    labels = labels % scores.shape[1]
+    
+    topk_metrics = accuracy(output=scores, target=labels, topk=(1, 3))
+    mrr = batch_mrr(output=scores, target=labels)
+
+    
+    return {'mrr': mrr, 'acc1': topk_metrics[0], 'acc3': topk_metrics[1]}
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
@@ -86,17 +109,20 @@ def main():
     # Get datasets
     retrieval_dataloader = RetrievalDataLoader(data_args, tokenizer)
     train_dataset = retrieval_dataloader.get_train_dataset()
+    eval_dataset = retrieval_dataloader.get_eval_dataset()
     
     trainer = BiTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         data_collator=BiCollator(
             tokenizer,
             query_max_len=data_args.query_max_len,
             passage_max_len=data_args.passage_max_len
         ),
         tokenizer=tokenizer,
+        compute_metrics=partial(_compute_metrics, eval_group_size=data_args.train_group_size) if training_args.do_eval else None,
     )
     retrieval_dataloader.trainer = trainer
 
@@ -110,7 +136,14 @@ def main():
         # # so that you can share your model easily on huggingface.co/models =)
         # if trainer.is_world_process_zero():
         #     tokenizer.save_pretrained(training_args.output_dir)
-
+    
+    if training_args.do_eval:
+        logging.info("*** Evaluation ***")
+        metrics = trainer.evaluate(metric_key_prefix='eval')
+        metrics["eval_samples"] = len(eval_dataset)
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+    
     if training_args.do_predict:
         logging.info("*** Prediction ***")
         # if os.path.exists(data_args.prediction_save_path):

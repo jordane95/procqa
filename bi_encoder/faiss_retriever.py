@@ -43,7 +43,7 @@ def search_queries(retriever, q_reps, p_lookup, depth, batch_size):
         all_scores, all_indices = retriever.batch_search(q_reps, depth, batch_size)
     else:
         all_scores, all_indices = retriever.search(q_reps, depth)
-
+    # import pdb; pdb.set_trace()
     psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
     psg_indices = np.array(psg_indices)
     return all_scores, psg_indices

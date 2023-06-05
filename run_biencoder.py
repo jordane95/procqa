@@ -31,6 +31,7 @@ def _compute_metrics(eval_pred: EvalPrediction, eval_group_size: int = 8) -> Dic
     # field consistent with BiencoderOutput 
     preds = eval_pred.predictions
     scores = torch.tensor(preds[-1]).float() # (num_samples, num_samples * eval_group_size) 
+    # import pdb; pdb.set_trace()
     labels = torch.arange(0, scores.shape[0], dtype=torch.long) * eval_group_size
     labels = labels % scores.shape[1]
     

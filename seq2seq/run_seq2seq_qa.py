@@ -22,12 +22,12 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 import nltk  # Here to have a nice missing dependency error message early on
 import datasets
 import evaluate
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict
 import numpy as np
 
 import transformers
@@ -242,13 +242,6 @@ question_answering_column_name_mapping = {
 }
 
 
-import argparse
-from typing import Dict
-
-from datasets import DatasetDict, load_dataset
-
-
-
 def load_dataset_from_path(path: str):
     train_set = load_dataset("json", data_files=path, split='train[:80%]')
     dev_set = load_dataset("json", data_files=path, split='train[80%:90%]')
@@ -358,7 +351,8 @@ def main():
         model.resize_token_embeddings(len(tokenizer))
 
     if model.config.decoder_start_token_id is None:
-        raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
+        pass
+        # raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
     # Preprocessing the datasets.
     # We need to generate and tokenize inputs and targets.
@@ -597,6 +591,8 @@ def main():
         if training_args.generation_max_length is not None
         else data_args.val_max_answer_length
     )
+    # print(max_length)
+    # import pdb; pdb.set_trace()
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
@@ -611,7 +607,7 @@ def main():
     # Prediction
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        results = trainer.predict(predict_dataset, metric_key_prefix="predict")
+        results = trainer.predict(predict_dataset, max_length=max_length, num_beams=num_beams, metric_key_prefix="predict")
         metrics = results.metrics
 
         max_predict_samples = (

@@ -145,6 +145,7 @@ class TrainDatasetForBiE(Dataset):
         input_docs = example['answer']
 
         query_batch_dict = self.tokenizer(
+            # text=example['question'],
             text=example['title'],
             text_pair=example['question'],
             max_length=self.args.query_max_len,

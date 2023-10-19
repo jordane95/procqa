@@ -24,28 +24,32 @@ from datasets import DatasetDict, load_dataset
 from typing import List, Dict
 from .logger_config import logger
 
-def group_doc_ids(examples: Dict[str, List],
-                  negative_size: int,
-                  offset: int,
-                  use_bm25: bool = False) -> List[int]:
-    pos_doc_ids: List[int] = examples['answer_id']
+
+def group_doc_ids(
+    example: Dict[str, List],
+    negative_size: int,
+    depth: int = 1000,
+    use_bm25: bool = False
+) -> List[str]:
+    pos_doc_id: str = str(example['answer_id'])
     
-    neg_doc_ids: List[List[int]] = []
+    neg_doc_ids: List[str] = []
 
     if use_bm25:
-        neg_doc_ids: List[List[str]] = examples['bm25_answer_ids']
-        for ex_neg in neg_doc_ids:
-            cur_neg_doc_ids = random.sample(ex_neg, negative_size)
-            cur_neg_doc_ids = [int(doc_id) for doc_id in cur_neg_doc_ids]
-            neg_doc_ids.append(cur_neg_doc_ids)
+        candidates = example['bm25_answer_ids']
+        if len(candidates) > 100:
+            candidates = candidates[100:depth]
+        else:
+            candidates = candidates[:depth]
+        # TODO: filter out positive docs
+        neg_doc_ids = random.sample(candidates, negative_size)
+    else:
 
-    assert len(pos_doc_ids) == len(neg_doc_ids), '{} != {}'.format(len(pos_doc_ids), len(neg_doc_ids))
-    assert all(len(doc_ids) == negative_size for doc_ids in neg_doc_ids)
+        pass
 
-    input_doc_ids: List[int] = []
-    for pos_doc_id, neg_ids in zip(pos_doc_ids, neg_doc_ids):
-        input_doc_ids.append(pos_doc_id)
-        input_doc_ids += neg_ids
+    assert len(neg_doc_ids) == negative_size
+
+    input_doc_ids: List[str] = [pos_doc_id, *neg_doc_ids]
 
     return input_doc_ids
 
@@ -66,6 +70,8 @@ def load_dataset_from_path(path: str):
         for item in dataset[k]:
             corpus[str(item["answer_id"])] = item["answer"]
 
+    corpus[str(-1)] = "dummpy text"
+    
     return dataset, corpus
 
 
@@ -102,12 +108,12 @@ class RetrievalDataLoader:
         # Log a few random samples from the training set:
         for index in random.sample(range(len(hf_train_dataset)), 3):
             logger.info(f"Sample {index} of the training set: {hf_train_dataset[index]}.")
-        self.train_dataset = TrainDatasetForBiE(self.args, hf_train_dataset, self.tokenizer)
+        self.train_dataset = TrainDatasetForBiE(self.args, hf_train_dataset, self.tokenizer, self.corpus)
 
         if "validation" not in self.hf_dataset:
             raise ValueError("--do_eval requires a validation dataset")
         hf_eval_dataset = self.hf_dataset["validation"]
-        self.eval_dataset = TrainDatasetForBiE(self.args, hf_eval_dataset, self.tokenizer)
+        self.eval_dataset = TrainDatasetForBiE(self.args, hf_eval_dataset, self.tokenizer, self.corpus)
 
         return self.train_dataset, self.eval_dataset
     
@@ -129,9 +135,11 @@ class TrainDatasetForBiE(Dataset):
         self,
         args: DataArguments,
         dataset: datasets.Dataset,
-        tokenizer: PreTrainedTokenizer
+        tokenizer: PreTrainedTokenizer,
+        corpus: Dict[str, str] = None,
     ):
         self.dataset = dataset
+        self.corpus = corpus
 
         self.tokenizer = tokenizer
         self.args = args
@@ -144,7 +152,7 @@ class TrainDatasetForBiE(Dataset):
         example = self.dataset[item]
         input_docs = example['answer']
 
-        query_batch_dict = self.tokenizer(
+        query_dict = self.tokenizer(
             # text=example['question'],
             text=example['title'],
             text_pair=example['question'],
@@ -153,18 +161,40 @@ class TrainDatasetForBiE(Dataset):
             truncation='longest_first',
         )
 
-        doc_batch_dict = self.tokenizer(
-            text=input_docs,
-            max_length=self.args.passage_max_len,
-            padding=False,
-            truncation='longest_first',
-        )
+        doc_dict_list = []
+
+        if self.args.train_group_size <= 1:
+            doc_dict = self.tokenizer(
+                text=input_docs,
+                max_length=self.args.passage_max_len,
+                padding=False,
+                truncation='longest_first',
+            )
+            doc_dict_list.append(doc_dict)
+        else:
+            if self.corpus is None:
+                raise ValueError("corpus is None")
+            input_doc_ids = group_doc_ids(
+                example=example,
+                negative_size=self.args.train_group_size - 1,
+                depth=1000,
+                use_bm25=True,
+            )
+            for doc_id in input_doc_ids:
+                input_doc = self.corpus[doc_id] # str
+                doc_dict = self.tokenizer(
+                    text=input_docs,
+                    max_length=self.args.passage_max_len,
+                    padding=False,
+                    truncation='longest_first',
+                ) # List[BatchEncoding]
+                doc_dict_list.append(doc_dict)
 
         # print(self.tokenizer.decode(query_batch_dict['input_ids']))
         # print(self.tokenizer.decode(doc_batch_dict['input_ids']))
         # import pdb; pdb.set_trace()
 
-        return query_batch_dict, doc_batch_dict
+        return query_dict, doc_dict_list
 
 
 def generate_random_neg(qids, pids, k=30):

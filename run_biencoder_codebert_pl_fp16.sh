@@ -1,10 +1,11 @@
-# export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=2
 
+# 14G, 2.5h
 pl=$1 # name of programming language
 
-MODEL_DIR="tmp/bi_codebert_${pl}"
-EMBEDDINGS_DIR="tmp/bi_codebert_embeddings_${pl}"
-RESULT_DIR="tmp/bi_codebert_result_${pl}"
+MODEL_DIR="tmp/bi_fp16_codebert_${pl}"
+EMBEDDINGS_DIR="tmp/bi_fp16_codebert_embeddings_${pl}"
+RESULT_DIR="tmp/bi_fp16_codebert_result_${pl}"
 
 mkdir -p $RESULT_DIR
 
@@ -33,7 +34,8 @@ python run_biencoder.py \
     --prediction_save_path $EMBEDDINGS_DIR \
     --encode_corpus \
     --encode_query \
-    --overwrite_output_dir
+    --overwrite_output_dir \
+    --fp16
 
 
 python test.py \

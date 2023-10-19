@@ -4,6 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Dict, Optional
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -72,7 +73,8 @@ class BiEncoderModel(nn.Module):
                  sentence_pooling_method: str = 'cls',
                  negatives_x_device: bool = False,
                  temperature: float = 1.0,
-                 contrastive_loss_weight: float = 1.0
+                 contrastive_loss_weight: float = 1.0,
+                 freeze_d: bool = False,
                  ):
         super().__init__()
         self.lm_q = lm_q
@@ -87,6 +89,7 @@ class BiEncoderModel(nn.Module):
         self.temperature = temperature
         self.negatives_x_device = negatives_x_device
         self.contrastive_loss_weight = contrastive_loss_weight
+        self.freeze_d = freeze_d
         if self.negatives_x_device:
             if not dist.is_initialized():
                 raise ValueError('Distributed training has not been initialized for representation all gather.')
@@ -148,7 +151,8 @@ class BiEncoderModel(nn.Module):
 
     def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None, teacher_score: Tensor = None):
         q_reps = self.encode_query(query)
-        p_reps = self.encode_passage(passage)
+        with torch.no_grad() if self.freeze_d else nullcontext():
+            p_reps = self.encode_passage(passage)
 
         # for inference
         if q_reps is None or p_reps is None:
@@ -262,7 +266,8 @@ class BiEncoderModel(nn.Module):
             normlized=model_args.normlized,
             sentence_pooling_method=model_args.sentence_pooling_method,
             temperature=train_args.temperature,
-            contrastive_loss_weight=train_args.contrastive_loss_weight
+            contrastive_loss_weight=train_args.contrastive_loss_weight,
+            freeze_d=train_args.freeze_d,
         )
         return model
 

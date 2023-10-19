@@ -84,3 +84,4 @@ class RetrieverTrainingArguments(TrainingArguments):
     negatives_x_device: bool = field(default=False, metadata={"help": "share negatives across devices"})
     temperature: Optional[float] = field(default=1.0)
     contrastive_loss_weight: Optional[float] = field(default=0.0001)
+    freeze_d: bool = field(default=False)

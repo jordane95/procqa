@@ -2,14 +2,14 @@
 
 pl=$1 # name of programming language
 
-MODEL_DIR="tmp/bi_codebert_${pl}"
-EMBEDDINGS_DIR="tmp/bi_codebert_embeddings_${pl}"
-RESULT_DIR="tmp/bi_codebert_result_${pl}"
+MODEL_DIR="tmp/bi_bert_${pl}"
+EMBEDDINGS_DIR="tmp/bi_bert_embeddings_${pl}"
+RESULT_DIR="tmp/bi_bert_result_${pl}"
 
 mkdir -p $RESULT_DIR
 
 python run_biencoder.py \
-    --model_name_or_path microsoft/codebert-base \
+    --model_name_or_path bert-base-uncased \
     --output_dir $MODEL_DIR \
     --data_file ../pls/qa.en.${pl}.json \
     --train_group_size 1 \
@@ -21,8 +21,7 @@ python run_biencoder.py \
     --save_strategy epoch \
     --evaluation_strategy epoch \
     --overwrite_output_dir \
-    --logging_steps 100 \
-    --fp16
+    --logging_steps 100
 
 
 python run_biencoder.py \

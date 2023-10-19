@@ -2,19 +2,19 @@
 
 pl=$1 # name of programming language
 
-MODEL_DIR="tmp/bi_codebert_${pl}"
-EMBEDDINGS_DIR="tmp/bi_codebert_embeddings_${pl}"
-RESULT_DIR="tmp/bi_codebert_result_${pl}"
+MODEL_DIR="tmp/bi_bm25neg_codebert_${pl}"
+EMBEDDINGS_DIR="tmp/bi_bm25neg_codebert_embeddings_${pl}"
+RESULT_DIR="tmp/bi_bm25neg_codebert_result_${pl}"
 
 mkdir -p $RESULT_DIR
 
 python run_biencoder.py \
-    --model_name_or_path microsoft/codebert-base \
+    --model_name_or_path ../models/codebert-base \
     --output_dir $MODEL_DIR \
-    --data_file ../pls/qa.en.${pl}.json \
-    --train_group_size 1 \
+    --data_file data/qa.en.${pl}.bm25.list.json \
+    --train_group_size 2 \
     --do_train \
-    --per_device_train_batch_size 32 \
+    --per_device_train_batch_size 16 \
     --num_train_epochs 3 \
     --do_eval \
     --per_device_eval_batch_size 64 \
@@ -33,7 +33,8 @@ python run_biencoder.py \
     --prediction_save_path $EMBEDDINGS_DIR \
     --encode_corpus \
     --encode_query \
-    --overwrite_output_dir
+    --overwrite_output_dir \
+    --fp16
 
 
 python test.py \

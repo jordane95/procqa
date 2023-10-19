@@ -5,7 +5,7 @@ from tqdm import tqdm
 from typing import Dict, List
 import json
 
-import BM25Search as BM25
+from lexical import BM25Search as BM25
 
 from datasets import load_dataset
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description="Script to mine BM25 hard negatives.")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--data_path", type=str, default="../data/qa.en.c.json", help="Name of the huggingface dataset")
+    parser.add_argument("--data_path", type=str, default="../pls/qa.en.c.json", help="Name of the huggingface dataset")
     parser.add_argument("--top_k", type=int, default=1000, help="Top k BM25 results as negatives.")
     parser.add_argument("--save_path", type=str, default="data/qa.en.c.bm25.list.json")
 

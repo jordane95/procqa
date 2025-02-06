@@ -2,8 +2,8 @@
 A community-based programming question answering dataset
 
 ## Dataset
-
-See https://pan.baidu.com/s/1cOSlbPZe8ekn1JwVbjeoSw?pwd=xxd2
+* Google Drive: https://drive.google.com/drive/folders/1jYrndynwwlLwtgAKmZWeBh-PvHvAXz4Z?usp=sharing
+* Baidu Drive: https://pan.baidu.com/s/1cOSlbPZe8ekn1JwVbjeoSw?pwd=xxd2
 
 ## MACP training and evaluation code
 
